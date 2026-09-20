@@ -5,6 +5,8 @@
   const KEY='fund-github-session-v1',PENDING='fund-github-login-v1';
   const read=key=>{try{return JSON.parse(sessionStorage.getItem(key)||'null');}catch{return null;}};
   let session=read(KEY);
+  const validSession=()=>/^[a-f0-9]{64}$/.test(session?.token||'')&&Number.isFinite(session?.expiresAt)&&session.expiresAt>Date.now();
+  const signedOut=()=>new Response(JSON.stringify({error:'sign_in_required'}),{status:401,headers:{'Content-Type':'application/json'}});
   const random=size=>Array.from(crypto.getRandomValues(new Uint8Array(size)),x=>x.toString(16).padStart(2,'0')).join('');
   const sha256=async text=>btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text))))).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
   const localPath=name=>new URL(name,new URL('./',location.href)).href;
@@ -32,8 +34,13 @@
   async function apiFetch(path,options={}){
     await ready;
     const headers=new Headers(options.headers||{});
-    if(session?.token&&session.expiresAt>Date.now())headers.set('Authorization','Bearer '+session.token);
-    else{session=null;try{sessionStorage.removeItem(KEY);}catch{}}
+    if(validSession())headers.set('Authorization','Bearer '+session.token);
+    else{
+      session=null;try{sessionStorage.removeItem(KEY);}catch{}
+      // A visitor without a Pages session cannot read cloud records. Show the
+      // sign-in screen locally, even when the account service is unreachable.
+      if(path==='/api/progress'||path==='/api/pages/logout')return signedOut();
+    }
     const response=await fetch(API+path,{...options,headers,credentials:'omit',mode:'cors'});
     if(response.status===401&&path==='/api/progress'){session=null;try{sessionStorage.removeItem(KEY);}catch{}}
     return response;
@@ -44,7 +51,7 @@
     for(let i=localStorage.length-1;i>=0;i--){const key=localStorage.key(i);if(key?.startsWith('fund-study-2026-v1-cloud-draft'))localStorage.removeItem(key);}
     location.assign(localPath('login.html'));
   }
-  window.FundAPI={fetch:apiFetch,signIn,logout,ready,path:name=>localPath(name==='account'?'account.html':'login.html'),accountURL:API+'/account'};
+  window.FundAPI={fetch:apiFetch,signIn,logout,ready,path:name=>localPath(name==='account'?'account.html':'login.html'),accountURL:API+'/account',studyURL:API+'/'};
   if(document.getElementById('github-login')){
     const button=document.getElementById('github-login'),message=document.getElementById('login-message');
     button.addEventListener('click',async()=>{button.disabled=true;message.textContent='正在打开账号登录…';try{await signIn();}catch{button.disabled=false;message.textContent='请允许浏览器使用网站存储后重试。';}});
