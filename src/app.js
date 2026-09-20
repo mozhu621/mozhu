@@ -1,39 +1,4 @@
 'use strict';
-(async()=>{await window.FundLocal.ready;await window.FundIndependent.ready;window.__FUND_CLOUD__=!window.FundIndependent.localMode;
-'use strict';
-(() => {
-const clone=x=>JSON.parse(JSON.stringify(x));
-const isObject=x=>x&&typeof x==='object'&&!Array.isArray(x);
-const fresh=()=>({schema:1,hours:8,planDone:{},learned:{},stats:{},history:[],activeExam:null,practice:null,attemptLog:{},baselineStats:{},_clock:{}});
-function upgrade(input){const s={...fresh(),...clone(input||{})};if(!isObject(input?.attemptLog))s.history=s.history.map(h=>({...h,legacyRecorded:true}));if(!isObject(s.attemptLog))s.attemptLog={};if(!isObject(input?.baselineStats))s.baselineStats=clone(s.stats||{});if(!isObject(s._clock))s._clock={};if(s.practice&&!s.practice.runId)s.practice.runId='practice-'+s.practice.startedAt+'-'+s.practice.ids.join('-').slice(0,80);return s;}
-function recompute(s,answers){const stats=clone(s.baselineStats||{});for(const e of Object.values(s.attemptLog||{}).sort((a,b)=>a.at-b.at||a.id.localeCompare(b.id))){if(!Object.hasOwn(answers,e.question))continue;const r=stats[e.question]||{attempts:0,correct:0,wrong:0,streak:0,wasWrong:false};const correct=answers[e.question]===e.answer;r.attempts++;r.last=e.answer;r.lastAt=e.at;if(correct){r.correct++;r.streak=(r.streak||0)+1;}else{r.wrong++;r.streak=0;r.wasWrong=true;}stats[e.question]=r;}s.stats=stats;return s;}
-function stamp(state,previous,now=Date.now()){state._clock||={};const old=previous||fresh();let tick=now;for(const n of Object.values(state._clock))if(Number.isFinite(n))tick=Math.max(tick,n+1);for(const field of['hours','activeExam','practice'])if(JSON.stringify(state[field])!==JSON.stringify(old[field]))state._clock[field]=tick;for(const field of['learned','planDone'])for(const key of new Set([...Object.keys(state[field]||{}),...Object.keys(old[field]||{})]))if(state[field]?.[key]!==old[field]?.[key])state._clock[field+'.'+key]=tick;for(const field of['activeExam','practice']){const current=state[field],before=old[field];if(!current)continue;current._answerTimes||={};current._flagTimes||={};for(const key of Object.keys(current.answers||{}))if(!before||current.answers[key]!==before.answers?.[key])current._answerTimes[key]=tick;for(const key of Object.keys(current.flags||{}))if(!before||current.flags[key]!==before.flags?.[key])current._flagTimes[key]=tick;if(JSON.stringify(current)!==JSON.stringify(before))current._changedAt=tick;}return state;}
-function mergeSession(a,b,field,clockA,clockB){const left=clockA[field]||0,right=clockB[field]||0;const chosen=clone(left>right?a:b);if(!a||!b)return chosen;const idA=a.id||a.runId,idB=b.id||b.runId;if(idA!==idB)return chosen;const r=chosen;for(const [map,times] of[['answers','_answerTimes'],['flags','_flagTimes']]){r[map]={};r[times]={};for(const key of new Set([...Object.keys(a[map]||{}),...Object.keys(b[map]||{})])){const at=a[times]?.[key]||0,bt=b[times]?.[key]||0;const win=at>bt?a:b;if(Object.hasOwn(win[map]||{},key)){r[map][key]=win[map][key];r[times][key]=Math.max(at,bt);}else{const alt=win===a?b:a;r[map][key]=alt[map][key];r[times][key]=Math.max(at,bt);}}}if(field==='practice'){r.checked={...a.checked,...b.checked};r.completed=!!(a.completed||b.completed);}r._changedAt=Math.max(a._changedAt||0,b._changedAt||0);return r;}
-function merge(local,remote,answers){const a=upgrade(local),b=upgrade(remote),r=upgrade(b);r._clock={...a._clock,...b._clock};for(const k of Object.keys(a._clock))r._clock[k]=Math.max(a._clock[k]||0,b._clock[k]||0);r.hours=(a._clock.hours||0)>(b._clock.hours||0)?a.hours:b.hours;for(const field of['learned','planDone']){r[field]={};for(const key of new Set([...Object.keys(a[field]),...Object.keys(b[field])])){const k=field+'.'+key;const v=(a._clock[k]||0)>(b._clock[k]||0)?a[field][key]:b[field][key];r[field][key]=v??a[field][key]??false;}}
-r.baselineStats=clone(b.baselineStats);for(const [id,stat] of Object.entries(a.baselineStats))if(!r.baselineStats[id]||(stat.attempts||0)>(r.baselineStats[id].attempts||0))r.baselineStats[id]=clone(stat);
-r.attemptLog={...a.attemptLog,...b.attemptLog};const history=new Map();for(const h of [...b.history,...a.history])if(!history.has(h.id)||h.endedAt<history.get(h.id).endedAt)history.set(h.id,h);r.history=[...history.values()].sort((x,y)=>y.endedAt-x.endedAt).slice(0,30);
-// One deterministic answer event per exam/question prevents duplicate grading on another device.
-for(const h of r.history.filter(h=>!h.legacyRecorded))for(const id of h.ids){const key=h.id+'/'+id;r.attemptLog[key]={id:key,question:id,answer:h.answers[id]??null,at:h.endedAt};}
-r.activeExam=mergeSession(a.activeExam,b.activeExam,'activeExam',a._clock,b._clock);r.practice=mergeSession(a.practice,b.practice,'practice',a._clock,b._clock);if(r.activeExam&&history.has(r.activeExam.id))r.activeExam=null;return recompute(r,answers);}
-globalThis.FundState={fresh,upgrade,recompute,stamp,merge,clone};
-})();
-
-globalThis.createFundValidator=function(DATA){
-const QUESTIONS=Object.fromEntries(DATA.questions.map(q=>[q.id,{answer:q.answer,subject:q.subject,topic:q.topic}]));
-const ANSWERS=Object.fromEntries(DATA.questions.map(q=>[q.id,q.answer]));
-const LESSON_IDS=new Set(DATA.lessons.map(l=>l.id));
-const dict=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
-const finite=x=>Number.isFinite(x)&&x>=0;
-const answer=x=>x===null||Number.isInteger(x)&&x>=0&&x<=3;
-function validSession(p,exam=false){if(!dict(p)||![1,3].includes(p.subject)||!Array.isArray(p.ids)||!p.ids.length||p.ids.length>322||new Set(p.ids).size!==p.ids.length)return false;if(p.ids.some(id=>!QUESTIONS[id]||QUESTIONS[id].subject!==p.subject))return false;if(!dict(p.answers)||Object.entries(p.answers).some(([id,a])=>!p.ids.includes(id)||!answer(a)))return false;if(exam&&(typeof p.id!=='string'||p.id.length>180||p.ids.length!==100||!finite(p.start)||p.deadline!==p.start+7200000))return false;if(!exam&&(!Number.isInteger(p.index)||p.index<0||p.index>=p.ids.length||!dict(p.checked)))return false;return true;}
-function validate(input){if(!dict(input)||input.schema!==1||![5,8,10].includes(input.hours))throw Error('invalid_state');for(const key of ['learned','planDone','stats','baselineStats','attemptLog','_clock'])if(!dict(input[key]))throw Error('invalid_'+key);if(Object.entries(input.learned).some(([key,v])=>!LESSON_IDS.has(key)||typeof v!=='boolean'))throw Error('invalid_lessons');if(Object.entries(input.planDone).some(([key,v])=>key.length>80||typeof v!=='boolean'))throw Error('invalid_plan');if(Object.keys(input.attemptLog).length>12000)throw Error('too_many_attempts');for(const [id,e] of Object.entries(input.attemptLog))if(!dict(e)||id.length>300||e.id!==id||!QUESTIONS[e.question]||!answer(e.answer)||!finite(e.at))throw Error('invalid_attempt');for(const [id,s] of Object.entries(input.baselineStats))if(!QUESTIONS[id]||!dict(s)||!['attempts','correct','wrong','streak'].every(k=>Number.isInteger(s[k])&&s[k]>=0)||s.attempts!==s.correct+s.wrong||!answer(s.last??null))throw Error('invalid_baseline');if(!Array.isArray(input.history)||input.history.length>30||input.history.some(h=>!validSession(h,true)||!finite(h.endedAt)))throw Error('invalid_history');if(input.activeExam!==null&&!validSession(input.activeExam,true))throw Error('invalid_exam');if(input.practice!==null&&!validSession(input.practice))throw Error('invalid_practice');if(Object.values(input._clock).some(n=>!finite(n)))throw Error('invalid_clock');
-const state=globalThis.FundState.upgrade(input);for(const h of state.history){let score=0,unanswered=0;h.topicResults={};for(const id of h.ids){const q=QUESTIONS[id],a=h.answers[id],ok=a===q.answer;if(ok)score++;if(!Number.isInteger(a))unanswered++;const t=h.topicResults[q.topic]||={correct:0,total:0};t.total++;if(ok)t.correct++;}Object.assign(h,{score,unanswered,wrong:100-score-unanswered,passed:score>=60});h.elapsed=Math.min(7200,Math.max(0,Math.floor((Math.min(h.endedAt,h.deadline)-h.start)/1000)));for(const id of (h.legacyRecorded?[]:h.ids)){const key=h.id+'/'+id;state.attemptLog[key]={id:key,question:id,answer:h.answers[id]??null,at:h.endedAt};}}
-if(state.activeExam&&state.history.some(h=>h.id===state.activeExam.id))state.activeExam=null;return globalThis.FundState.recompute(state,ANSWERS);}
-
-return input=>{const s=JSON.stringify(input);if(s.length>1500000||/"(?:__proto__|constructor|prototype)"\s*:/.test(s))throw Error('invalid_state');return validate(input)};
-};
-
-'use strict';
 (() => {
 const DATA=JSON.parse(document.getElementById('study-data').textContent);
 const BANK=DATA.questions, LESSONS=DATA.lessons, BYID=Object.fromEntries(BANK.map(q=>[q.id,q]));
@@ -59,54 +24,7 @@ const clamp=(n,min,max)=>Math.min(max,Math.max(min,n));
 const topics=s=>[...new Set(LESSONS.filter(l=>l.subject===+s).map(l=>l.topic))];
 const lesson=id=>LESSONS.find(l=>l.id===id);
 function save(){if(CLOUD_ENABLED){FundState.stamp(state,lastCaptured);lastCaptured=FundState.clone(state);cloud.generation++;cloud.dirty=true;cloud.phase='pending';cloudCache();scheduleCloud();return;}try{FundState.stamp(state,lastCaptured);lastCaptured=FundState.clone(state);localStorage.setItem(KEY,JSON.stringify(state));storageOK=true;}catch{storageOK=false;}}
-const apiFetch=(...args)=>window.FundAPI?window.FundAPI.fetch(...args):fetch(...args);
-// Included inside app.js's closure by the build; state and rendering remain shared.
-function cloudCache(){if(!cloud.userId)return;try{localStorage.setItem(KEY+'-cloud-draft:'+encodeURIComponent(cloud.userId),JSON.stringify({userId:cloud.userId,revision:cloud.revision,dirty:cloud.dirty,state}));}catch{/* A pending draft is optional; the database is the saved record. */}}
-function cloudStatus(){return cloud.phase==='saving'?'正在保存到云端':cloud.phase==='pending'?'有待保存的记录':cloud.phase==='offline'?'尚未同步 · 点击重试':cloud.phase==='error'?'云端暂不可用 · 点击重试':'已保存到云端';}
-function paintCloudStatus(){document.querySelectorAll('[data-cloud-status]').forEach(el=>{el.textContent=cloudStatus();el.classList.toggle('unsynced',cloud.dirty||cloud.phase==='offline'||cloud.phase==='error');});document.querySelectorAll('[data-cloud-warning]').forEach(el=>{el.hidden=!['offline','error'].includes(cloud.phase);el.textContent=cloud.ready?'当前连接不可用，新作答尚未保存到云端。恢复网络后会重试；离开前请确认右上角显示“已保存到云端”。':'暂时无法读取云端记录，请重试。';});}
-function scheduleCloud(){if(!CLOUD_ENABLED||!cloud.ready)return;clearTimeout(cloud.saveTimer);cloud.saveTimer=setTimeout(()=>flushCloud(),180);}
-async function getCloud(){const response=await apiFetch('/api/progress',{credentials:'same-origin',cache:'no-store'});if(response.status===401){cloudCache();cloud.ready=false;cloud.phase='signedout';render();throw Error('sign_in_required');}if(!response.ok)throw Error('cloud_load_failed');const result=await response.json();if(typeof result.userId!=='string'||!Number.isInteger(result.revision))throw Error('invalid_cloud_response');return result;}
-async function bootstrapCloud(){if(cloud.loading)return;cloud.loading=true;cloud.phase='loading';render();try{const remote=await getCloud();let draft=null;try{const saved=JSON.parse(localStorage.getItem(KEY+'-cloud-draft:'+encodeURIComponent(remote.userId))||localStorage.getItem(KEY+'-cloud-draft')||'null');if(saved?.userId===remote.userId&&saved.state)draft=saved;}catch{}
-cloud.userId=remote.userId;cloud.account=remote.account;cloud.revision=remote.revision;let local=FundState.fresh();if(draft)local=FundState.upgrade(draft.state);else if(remote.account?.kind==='chatgpt'){try{const owner=localStorage.getItem(KEY+'-legacy-owner');if(!owner||owner===remote.userId){local=state;localStorage.setItem(KEY+'-legacy-owner',remote.userId);}}catch{local=FundState.fresh();}}const answers=Object.fromEntries(BANK.map(q=>[q.id,q.answer]));
-if(remote.state){state=draft?.dirty?FundState.merge(local,remote.state,answers):FundState.upgrade(remote.state);cloud.dirty=!!draft?.dirty;}else{state=FundState.upgrade(local);FundState.stamp(state,FundState.fresh());cloud.dirty=true;}
-lastCaptured=FundState.clone(state);cloud.ready=true;cloud.phase=cloud.dirty?'pending':'saved';cloudCache();if(state.activeExam)tab='exam';render();checkDeadline();if(cloud.dirty)await flushCloud();}
-catch(err){cloud.phase=err.message==='sign_in_required'?'signedout':'error';render();}finally{cloud.loading=false;}}
-async function flushCloud({keepalive=false}={}){if(!CLOUD_ENABLED||!cloud.ready||cloud.inFlight||!cloud.dirty)return;cloud.inFlight=true;cloud.phase='saving';paintCloudStatus();try{for(let attempt=0;attempt<4;attempt++){const generation=cloud.generation;const payload=JSON.stringify({userId:cloud.userId,revision:cloud.revision,state});if(keepalive&&new TextEncoder().encode(payload).length>60000)break;const response=await apiFetch('/api/progress',{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:payload,keepalive});if(response.status===401){cloud.phase='signedout';cloud.ready=false;render();throw Error('sign_in_required');}if(!response.ok&&response.status!==409)throw Error('cloud_save_failed');const remote=await response.json();if(remote.userId!==cloud.userId)throw Error('account_changed');const answers=Object.fromEntries(BANK.map(q=>[q.id,q.answer]));cloud.revision=remote.revision;
-if(response.status===409){state=FundState.merge(state,remote.state,answers);lastCaptured=FundState.clone(state);cloud.dirty=true;cloudCache();if(state.activeExam)tab='exam';render();continue;}
-state=cloud.generation===generation?FundState.upgrade(remote.state):FundState.merge(state,remote.state,answers);lastCaptured=FundState.clone(state);cloud.dirty=cloud.generation!==generation;cloud.phase=cloud.dirty?'pending':'saved';cloudCache();paintCloudStatus();if(!cloud.dirty)break;}
-if(cloud.dirty&&cloud.phase!=='signedout')cloud.phase='pending';}
-catch(err){if(cloud.phase!=='signedout')cloud.phase='offline';cloud.dirty=true;cloudCache();paintCloudStatus();}
-finally{cloud.inFlight=false;paintCloudStatus();if(cloud.dirty&&cloud.phase==='pending'&&!keepalive)scheduleCloud();}}
-async function refreshCloud(){if(!cloud.ready||cloud.inFlight||cloud.dirty||document.hidden)return;try{const remote=await getCloud();if(remote.userId!==cloud.userId){cloud.ready=false;cloud.phase='signedout';render();return;}if(remote.revision>cloud.revision){state=FundState.upgrade(remote.state);cloud.revision=remote.revision;lastCaptured=FundState.clone(state);cloud.phase='saved';cloudCache();if(state.activeExam)tab='exam';render();checkDeadline();}cloud.phase='saved';paintCloudStatus();}catch{if(cloud.phase==='signedout'){cloud.ready=false;render();}else{cloud.phase='error';paintCloudStatus();}}}
-
-async function openAccount(){if(cloud.inFlight){toast('正在保存，请稍后再打开账号设置。');return;}if(cloud.dirty)await flushCloud();if(cloud.dirty){toast('还有未同步的记录，请恢复网络并保存后再打开账号设置。');return;}window.location.assign(window.FundAPI?window.FundAPI.path('account'):'/account');}
-
-const validateBackup=globalThis.createFundValidator(DATA);
-function backupPanel(){
-  if(CLOUD_ENABLED&&(!cloud.ready||cloud.inFlight)){toast('请先等待当前账号同步完成。');return;}
-  const cached=[];
-  try{for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key?.startsWith(KEY+'-cloud-draft')){const record=JSON.parse(localStorage.getItem(key)||'null');if(record?.state&&record.userId!==cloud.userId)cached.push(record);}}}catch{}
-  dialog.innerHTML=`<h2>学习记录备份</h2><p>${CLOUD_ENABLED?'当前账号：'+esc(cloud.account?.username||'已登录'):'当前为本机学习，记录只保存在这个浏览器。'} 导出文件后，可在其他设备或自己的云端账号中导入。</p><div class="row wrap"><button type="button" class="btn primary" id="export-record">导出当前记录</button></div><label class="account-field space">导入记录文件<input id="import-record" type="file" accept=".json,application/json"></label>${cached.length?'<p>检测到以前保存在此浏览器的账号记录：</p><div id="cached-records" class="row wrap"></div>':''}<p id="backup-message" role="status"></p><div class="row"><button class="btn" type="button" data-action="cancel-modal">关闭</button></div>`;
-  document.getElementById('export-record').addEventListener('click',()=>{
-    const body={format:'fund-study-backup',version:1,exportedAt:Date.now(),state:validateBackup(FundState.upgrade(state))};
-    const url=URL.createObjectURL(new Blob([JSON.stringify(body,null,2)],{type:'application/json'}));
-    const link=document.createElement('a');link.href=url;link.download='fund-study-backup-'+new Date().toISOString().slice(0,10)+'.json';document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
-  });
-  function prepareRestore(input){
-    const restored=validateBackup(FundState.upgrade(input));
-    modal('导入这些学习记录？',`将合并到${CLOUD_ENABLED?'当前账号 '+esc(cloud.account?.username||''):'当前浏览器'}。包含 ${Object.keys(restored.stats).length} 道已练习题、${restored.history.length} 次模拟成绩。已有作答会保留，同一条记录不会重复计数。`,()=>{
-      state=validateBackup(FundState.merge(state,restored,Object.fromEntries(BANK.map(q=>[q.id,q.answer]))));save();if(state.activeExam)tab='exam';render();checkDeadline();toast('记录已导入。'+(CLOUD_ENABLED?'正在同步到账号。':'请定期导出备份。'));
-    },'确认导入');
-  }
-  document.getElementById('import-record').addEventListener('change',async event=>{
-    const file=event.target.files?.[0];if(!file)return;
-    try{if(file.size>1600000)throw Error();const parsed=JSON.parse(await file.text());if(parsed.format!=='fund-study-backup'||parsed.version!==1)throw Error();prepareRestore(parsed.state);}
-    catch{document.getElementById('backup-message').textContent='无法识别这份记录，请选择学习室导出的 JSON 文件。';}
-  });
-  cached.forEach((record,index)=>{const button=document.createElement('button');button.className='btn';button.type='button';button.textContent='导入旧账号缓存 '+(index+1);button.addEventListener('click',()=>{try{prepareRestore(record.state);}catch{document.getElementById('backup-message').textContent='这份旧缓存无法导入，请使用完整备份文件。';}});document.getElementById('cached-records').appendChild(button);});
-  dialog.showModal();
-}
-
+__CLOUD_CLIENT__
 function toast(message){const t=document.getElementById('toast');t.textContent=message;t.className='show';clearTimeout(toastHandle);toastHandle=setTimeout(()=>t.className='',3400);}
 function icon(name,size=18){const paths={home:'M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z',book:'M12 5c-3-2-7-2-10-1v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-3-1-7-1-10 1Zm0 0v15',pen:'m14 5 5 5M4 20l4-1L20 7a2 2 0 0 0-4-4L4 15Z',wrong:'M8 3H5v18h14V3h-3M8 2h8v4H8ZM8 11h8M8 16h5',exam:'M7 2h10v4H7ZM7 4H4v18h16V4h-3M8 11h8M8 16h4',folder:'M3 7h18v13H3ZM3 7V4h7l2 3',arrow:'M4 12h15m-5-5 5 5-5 5',check:'m5 12 4 4L19 6',clock:'M12 8v5l3 2M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z',flag:'M5 22V3h13l-3 4 3 4H5',target:'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Zm-5 0a5 5 0 1 1-10 0 5 5 0 0 1 10 0ZM12 11v2',refresh:'M20 7v6h-6M4 17v-6h6M5 7a8 8 0 0 1 13-2l2 2M4 17l2 2a8 8 0 0 0 13-2',external:'M14 3h7v7m0-7-11 11M10 3H3v18h18v-7',star:'m12 2 3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1Z'};return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]||paths.book}"/></svg>`;}
 const btn=(action,text,cls='',extra='')=>`<button class="btn ${cls}" data-action="${action}" ${extra}>${text}</button>`;
@@ -164,5 +82,3 @@ try{if(navigator.modelContext?.registerTool){navigator.modelContext.registerTool
 window.FundStudy={bootstrapCloud,flushCloud,refreshCloud,getCloudStatus:()=>cloud,startPractice,confirmPractice,startExam,scoreExam,submitExam,recordAnswer,drawExam,checkDeadline,chooseExam,navigate,getState:()=>state,getData:()=>DATA,render,handle};
 render();if(CLOUD_ENABLED){bootstrapCloud();window.addEventListener('online',()=>cloud.ready?(cloud.dirty?flushCloud():refreshCloud()):bootstrapCloud());window.addEventListener('pagehide',()=>flushCloud({keepalive:true}));setInterval(()=>{if(cloud.dirty)flushCloud();else refreshCloud();},15000);}else checkDeadline();setInterval(checkDeadline,1000);
 })();
-
-})().catch(()=>{document.getElementById('app').innerHTML='<div class="cloud-loading"><h1>暂时无法打开账号</h1><p>可以重新登录，或先在本机学习。</p><a class="btn primary" href="./account.html">重新登录</a><p><a href="./?local=1">本机学习</a></p></div>';});

@@ -1,0 +1,8 @@
+{
+  "name": "fund-study-independent",
+  "private": true,
+  "type": "module",
+  "scripts": {"build": "node build.mjs", "test": "node tests/independent.mjs"},
+  "dependencies": {"@supabase/supabase-js": "2.116.0"},
+  "devDependencies": {"esbuild": "0.25.12"}
+}

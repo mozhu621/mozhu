@@ -1,0 +1,4 @@
+[functions.fund-study]
+# The handler verifies every end-user JWT with Supabase Auth before reading data.
+# This also allows CORS preflight requests without an Authorization header.
+verify_jwt = false
